@@ -1397,6 +1397,8 @@ def copy_to_master(parser, xml_parent, data):
     if data.get('destination', ''):
         XML.SubElement(cm, 'overrideDestinationFolder').text = 'true'
 
+    XML.SubElement(cm, 'runAfterResultFinalised').text = str(
+        data.get('run-after-finalized', True)).lower()
 
 def jira(parser, xml_parent, data):
     """yaml: jira

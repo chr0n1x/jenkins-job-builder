@@ -65,14 +65,13 @@ def main():
 
     # template command parser
     parser_ptest = subparser.add_parser('template-test')
-    parser_ptest.add_argument('template', help='Path to YAML file for template')
+    parser_ptest.add_argument('load_path', help='Path to YAML file(s) for template')
+    parser_ptest.add_argument('template', help='Job Template name')
     parser_ptest.add_argument('-p', '--params', dest='params',
         help='{key:value} to inject into the project template',
         nargs='+')
     parser_ptest.add_argument('-o', '--output', dest='output_dir',
                               help='Path to output XML')
-    parser_ptest.add_argument('-n', '--name', dest='name',
-        help='name(s) of job(s)', nargs='*')
 
     options = parser.parse_args()
 
@@ -130,9 +129,10 @@ def main():
         builder.update_job(options.path, options.name,
                            output_dir=options.output_dir)
     elif options.command == 'template-test':
-        yaml = builder.create_job_from_template(options.template,
+        yaml = builder.create_job_from_template(options.load_path,
+                                                options.template,
                                                 options.params)
-        builder.update_job(yaml, options.name,
+        builder.update_job(yaml, options.template,
                            output_dir=options.output_dir)
 
 if __name__ == '__main__':

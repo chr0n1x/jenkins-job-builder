@@ -60,6 +60,23 @@ def deep_format(obj, paramdict):
         ret = obj
     return ret
 
+def parser_load(config, fn):
+    """
+    :arg obj    config: config to pass to yaml
+    :arg string fn: file(s) to load / parse
+    """
+    print fn
+    if os.path.isdir(fn):
+        files_to_process = [os.path.join(fn, f)
+                            for f in os.listdir(fn)
+                            if (f.endswith('.yml') or f.endswith('.yaml'))]
+    else:
+        files_to_process = [fn]
+    parser = YamlParser(config)
+    for in_file in files_to_process:
+        logger.debug("Parsing YAML file {0}".format(in_file))
+        parser.parse(in_file)
+    return parser
 
 class YamlParser(object):
     def __init__(self, config=None):
@@ -68,7 +85,13 @@ class YamlParser(object):
         self.jobs = []
 
     def parse(self, fn):
-        data = yaml.load(open(fn))
+        """fn can either be a file system path or a string
+        representing a YAML doc
+        """
+        if os.path.exists(fn):
+          data = yaml.load(open(fn))
+        else:
+          data = yaml.load(fn)
         if data:
             for item in data:
                 cls, dfn = item.items()[0]
@@ -86,6 +109,7 @@ class YamlParser(object):
                 name = dfn['name']
                 group[name] = dfn
                 self.data[cls] = group
+        return data
 
     def getJob(self, name):
         job = self.data.get('job', {}).get(name, None)
@@ -452,22 +476,11 @@ class Builder(object):
             self.delete_job(job['name'])
 
     def update_job(self, fn, names=None, output_dir=None):
-        if os.path.isdir(fn):
-            files_to_process = [os.path.join(fn, f)
-                                for f in os.listdir(fn)
-                                if (f.endswith('.yml') or f.endswith('.yaml'))]
-        else:
-            files_to_process = [fn]
-        parser = YamlParser(self.global_config)
-        for in_file in files_to_process:
-            logger.debug("Parsing YAML file {0}".format(in_file))
-            parser.parse(in_file)
+        parser = parser_load(self.global_config, fn)
+        parser.generateXML(names)
+        parser.jobs.sort(lambda a, b: cmp(a.name, b.name))
         if names:
             logger.debug("Will filter out jobs not in %s" % names)
-        parser.generateXML(names)
-
-        parser.jobs.sort(lambda a, b: cmp(a.name, b.name))
-
         for job in parser.jobs:
             if names and job.name not in names:
                 continue
@@ -494,7 +507,14 @@ class Builder(object):
                 logger.debug("'{0}' has not changed".format(job.name))
         return parser.jobs
 
-    def create_job_from_template(self, template, params):
-        logger.debug(template)
-        logger.debug(params)
-        return template
+    def create_job_from_template(self, fn, template, params):
+        """
+        :arg string fn: file(s) to load / parse
+        :arg string template: name of the template, defined somewhere in fn
+        :arg list   params: [key:values] to inject into template
+        """
+       #print fn
+       #print template
+       #print params
+        parser = parser_load(self.global_config, fn)
+        return parser.inject_template(template, params)

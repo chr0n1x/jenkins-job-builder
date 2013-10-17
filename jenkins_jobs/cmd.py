@@ -63,14 +63,16 @@ def main():
         '--flush-cache', action='store_true', dest='flush_cache',
         default=False, help='Flush all the cache entries before updating')
 
+    # template command parser
     parser_ptest = subparser.add_parser('template-test')
     parser_ptest.add_argument('template', help='Path to YAML file for template')
-    parser_ptest.add_argument('params',
-        help='comma delimited parameters to inject into the project template',
+    parser_ptest.add_argument('-p', '--params', dest='params',
+        help='{key:value} to inject into the project template',
         nargs='+')
-    parser_ptest.add_argument('-o', dest='output_dir',
+    parser_ptest.add_argument('-o', '--output', dest='output_dir',
                               help='Path to output XML')
-    parser_ptest.add_argument('name', help='name(s) of job(s)', nargs='*')
+    parser_ptest.add_argument('-n', '--name', dest='name',
+        help='name(s) of job(s)', nargs='*')
 
     options = parser.parse_args()
 
@@ -130,7 +132,6 @@ def main():
     elif options.command == 'template-test':
         yaml = builder.create_job_from_template(options.template,
                                                 options.params)
-        logger.debug(yaml)
         builder.update_job(yaml, options.name,
                            output_dir=options.output_dir)
 

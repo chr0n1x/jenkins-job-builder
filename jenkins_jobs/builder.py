@@ -252,6 +252,19 @@ class YamlParser(object):
             self.jobs.append(job)
             break
 
+    def injectTemplateParams(self, name, params):
+        dict = {}
+        for param in params:
+            list = param.split(':')
+            val = list.pop()
+            key = list.pop()
+            dict[key] = val
+        template = yaml.dump(self.getJobTemplate(name))
+        for param in dict:
+            param = '{' + param + '}'
+            template = template.replace( param, val )
+        return yaml.dump(template, default_flow_style=True)
+
     def gen_xml(self, xml, data):
         for module in self.registry.modules:
             if hasattr(module, 'gen_xml'):
@@ -513,8 +526,5 @@ class Builder(object):
         :arg string template: name of the template, defined somewhere in fn
         :arg list   params: [key:values] to inject into template
         """
-       #print fn
-       #print template
-       #print params
         parser = parser_load(self.global_config, fn)
-        return parser.inject_template(template, params)
+        return parser.injectTemplateParams(template, params)

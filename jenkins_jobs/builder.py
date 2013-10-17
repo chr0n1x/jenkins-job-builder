@@ -493,3 +493,8 @@ class Builder(object):
             else:
                 logger.debug("'{0}' has not changed".format(job.name))
         return parser.jobs
+
+    def create_job_from_template(self, template, params):
+        logger.debug(template)
+        logger.debug(params)
+        return template

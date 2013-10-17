@@ -38,11 +38,13 @@ def main():
     parser_update.add_argument('--delete-old', help='Delete obsolete jobs',
                                action='store_true',
                                dest='delete_old', default=False,)
+
     parser_test = subparser.add_parser('test')
     parser_test.add_argument('path', help='Path to YAML file or directory')
     parser_test.add_argument('-o', dest='output_dir',
                              help='Path to output XML')
     parser_test.add_argument('name', help='name(s) of job(s)', nargs='*')
+
     parser_delete = subparser.add_parser('delete')
     parser_delete.add_argument('name', help='name of job', nargs='+')
     subparser.add_parser('delete-all',
@@ -60,6 +62,16 @@ def main():
     parser.add_argument(
         '--flush-cache', action='store_true', dest='flush_cache',
         default=False, help='Flush all the cache entries before updating')
+
+    parser_ptest = subparser.add_parser('template-test')
+    parser_ptest.add_argument('template', help='Path to YAML file for template')
+    parser_ptest.add_argument('params',
+        help='comma delimited parameters to inject into the project template',
+        nargs='+')
+    parser_ptest.add_argument('-o', dest='output_dir',
+                              help='Path to output XML')
+    parser_ptest.add_argument('name', help='name(s) of job(s)', nargs='*')
+
     options = parser.parse_args()
 
     options.log_level = getattr(logging, options.log_level.upper(),
@@ -82,7 +94,7 @@ def main():
         conffp = open(conf, 'r')
         config = ConfigParser.ConfigParser()
         config.readfp(conffp)
-    elif options.command == 'test':
+    elif options.command == 'test' or options.command == 'template-test':
         logger.debug("Not reading config for test output generation")
         config = {}
     else:
@@ -114,6 +126,12 @@ def main():
             builder.delete_old_managed(keep=[x.name for x in jobs])
     elif options.command == 'test':
         builder.update_job(options.path, options.name,
+                           output_dir=options.output_dir)
+    elif options.command == 'template-test':
+        yaml = builder.create_job_from_template(options.template,
+                                                options.params)
+        logger.debug(yaml)
+        builder.update_job(yaml, options.name,
                            output_dir=options.output_dir)
 
 if __name__ == '__main__':

@@ -259,11 +259,7 @@ class YamlParser(object):
             val = list.pop()
             key = list.pop()
             dict[key] = val
-        template = yaml.dump(self.getJobTemplate(name))
-        for param in dict:
-            param = '{' + param + '}'
-            template = template.replace( param, val )
-        return yaml.dump(template, default_flow_style=True)
+        return deep_format(self.getJobTemplate(name), dict)
 
     def gen_xml(self, xml, data):
         for module in self.registry.modules:

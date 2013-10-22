@@ -47,10 +47,12 @@ def main():
 
     parser_delete = subparser.add_parser('delete')
     parser_delete.add_argument('name', help='name of job', nargs='+')
+
     subparser.add_parser('delete-all',
                          help='Delete *ALL* jobs from Jenkins server, '
                          'including those not managed by Jenkins Job '
                          'Builder.')
+
     parser.add_argument('--conf', dest='conf', help='Configuration file')
     parser.add_argument('-l', '--log_level', dest='log_level', default='info',
                         help="Log level (default: %(default)s)")
@@ -129,11 +131,10 @@ def main():
         builder.update_job(options.path, options.name,
                            output_dir=options.output_dir)
     elif options.command == 'template-test':
-        yaml = builder.create_job_from_template(options.load_path,
-                                                options.template,
-                                                options.params)
-        builder.update_job(yaml, options.template,
-                           output_dir=options.output_dir)
+        builder.create_job_from_template(options.load_path,
+                                         options.template,
+                                         options.params,
+                                         output=options.output_dir)
 
 if __name__ == '__main__':
     sys.path.insert(0, '.')

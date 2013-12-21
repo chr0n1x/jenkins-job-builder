@@ -2815,6 +2815,139 @@ def git(parser, xml_parent, data):
             handle_entity_children(note['note'], xml_note, note_mappings)
 
 
+def github_notifier(parser, xml_parent, data):
+    """yaml: github-notifier
+    Set build status on Github commit.
+    Requires the Jenkins `Github Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/GitHub+Plugin>`_
+
+    Example:
+
+    .. literalinclude:: ../../tests/publishers/fixtures/github-notifier.yaml
+    """
+    XML.SubElement(xml_parent,
+                   'com.cloudbees.jenkins.GitHubCommitNotifier')
+
+
+def build_publisher(parser, xml_parent, data):
+    """yaml: build-publisher
+    This plugin allows records from one Jenkins to be published
+    on another Jenkins.
+
+    Requires the Jenkins `Build Publisher Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Build+Publisher+Plugin>`_
+
+    :arg str servers: Specify the servers where to publish
+
+
+    Example::
+
+        publishers:
+            - build-publisher:
+                name: servername
+                publish-unstable-builds: true
+                publish-failed-builds: true
+                days-to-keep: -1
+                num-to-keep: -1
+                artifact-days-to-keep: -1
+                artifact-num-to-keep: -1
+
+    """
+
+    reporter = XML.SubElement(
+        xml_parent,
+        'hudson.plugins.build__publisher.BuildPublisher')
+
+    XML.SubElement(reporter, 'serverName').text = data['name']
+    XML.SubElement(reporter, 'publishUnstableBuilds').text = \
+        str(data.get('publish-unstable-builds', True)).lower()
+    XML.SubElement(reporter, 'publishFailedBuilds').text = \
+        str(data.get('publish-failed-builds', True)).lower()
+
+    logrotator = XML.SubElement(reporter, 'logRotator')
+    XML.SubElement(logrotator, 'daysToKeep').text = \
+        str(data.get('days-to-keep', -1))
+    XML.SubElement(logrotator, 'numToKeep').text = \
+        str(data.get('num-to-keep', -1))
+    XML.SubElement(logrotator, 'artifactDaysToKeep').text = \
+        str(data.get('artifact-days-to-keep', -1))
+    XML.SubElement(logrotator, 'artifactNumToKeep').text = \
+        str(data.get('artifact-num-to-keep', -1))
+
+
+def stash(parser, xml_parent, data):
+    """yaml: stash
+    This plugin will configure the Jenkins Stash Notifier plugin to
+    notify Atlassian Stash after job completes.
+
+    Requires the Jenkins `StashNotifier Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/StashNotifier+Plugin>`_
+
+    :arg string url: Base url of Stash Server (Default: "")
+    :arg string username: Username of Stash Server (Default: "")
+    :arg string password: Password of Stash Server (Default: "")
+    :arg bool   ignore-ssl: Ignore unverified SSL certificate (Default: False)
+    :arg string commit-sha1: Commit SHA1 to notify (Default: "")
+    :arg bool   include-build-number: Include build number in key
+                (Default: False)
+
+    Example:
+
+    .. literalinclude:: ../../tests/publishers/fixtures/stash001.yaml
+    """
+
+    top = XML.SubElement(xml_parent,
+                         'org.jenkinsci.plugins.stashNotifier.StashNotifier')
+
+    XML.SubElement(top, 'stashServerBaseUrl').text = data.get('url', '')
+    XML.SubElement(top, 'stashUserName').text = data.get('username', '')
+    XML.SubElement(top, 'stashUserPassword').text = data.get('password', '')
+    XML.SubElement(top, 'ignoreUnverifiedSSLPeer').text = str(
+        data.get('ignore-ssl', False)).lower()
+    XML.SubElement(top, 'commitSha1').text = data.get('commit-sha1', '')
+    XML.SubElement(top, 'includeBuildNumberInKey').text = str(
+        data.get('include-build-number', False)).lower()
+
+
+def description_setter(parser, xml_parent, data):
+    """yaml: description-setter
+    This plugin sets the description for each build,
+    based upon a RegEx test of the build log file.
+
+    Requires the Jenkins `Description Setter Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Description+Setter+Plugin>`_
+
+    :arg str regexp: A RegEx which is used to scan the build log file
+    :arg str regexp-for-failed: A RegEx which is used for failed builds
+        (optional)
+    :arg str description: The description to set on the build (optional)
+    :arg str description-for-failed: The description to set on
+        the failed builds (optional)
+    :arg bool set-for-matrix: Also set the description on
+        a multi-configuration build (Default False)
+
+    Example:
+
+    .. literalinclude:: ../../tests/publishers/fixtures/description-setter.yaml
+
+    """
+
+    descriptionsetter = XML.SubElement(
+        xml_parent,
+        'hudson.plugins.descriptionsetter.DescriptionSetterPublisher')
+    XML.SubElement(descriptionsetter, 'regexp').text = data.get('regexp', '')
+    XML.SubElement(descriptionsetter, 'regexpForFailed').text = \
+        data.get('regexp-for-failed', '')
+    if 'description' in data:
+        XML.SubElement(descriptionsetter, 'description').text = \
+            data['description']
+    if 'description-for-failed' in data:
+        XML.SubElement(descriptionsetter, 'descriptionForFailed').text = \
+            data['description-for-failed']
+    for_matrix = str(data.get('set-for-matrix', False)).lower()
+    XML.SubElement(descriptionsetter, 'setForMatrix').text = for_matrix
+
+
 class Publishers(jenkins_jobs.modules.base.Base):
     sequence = 70
 

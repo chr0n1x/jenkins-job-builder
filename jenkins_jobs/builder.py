@@ -257,7 +257,7 @@ class YamlParser(object):
         project = {}
         project['jobs'] = [template_name]
         for param in params:
-            list = param.split(':')
+            list = param.split(':', 1)
             val = list.pop()
             key = list.pop()
             project[key] = val

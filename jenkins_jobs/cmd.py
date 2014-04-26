@@ -40,7 +40,13 @@ def confirm(question):
         sys.exit('Aborted')
 
 
-def main():
+def main(argv=None):
+    # We default argv to None and assign to sys.argv[1:] below because having
+    # an argument default value be a mutable type in Python is a gotcha. See
+    # http://bit.ly/1o18Vff
+    if argv is None:
+        argv = sys.argv[1:]
+
     import jenkins_jobs.builder
     import jenkins_jobs.errors
     parser = argparse.ArgumentParser()
@@ -90,7 +96,7 @@ def main():
     parser_ptest.add_argument('-o', '--output', dest='output_dir',
                               help='Path to output XML')
 
-    options = parser.parse_args()
+    options = parser.parse_args(argv)
 
     options.log_level = getattr(logging, options.log_level.upper(),
                                 logging.INFO)

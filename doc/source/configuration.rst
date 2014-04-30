@@ -34,6 +34,7 @@ later.  There are a few basic optional fields for a Job definition::
       project-type: freestyle
       defaults: global
       disabled: false
+      display-name: 'Fancy job name'
       concurrent: true
       quiet-period: 5
       workspace: /srv/build-area/job-name
@@ -55,6 +56,13 @@ later.  There are a few basic optional fields for a Job definition::
 **disabled**
   Boolean value to set whether or not this job should be disabled in
   Jenkins. Defaults to ``false`` (job will be enabled).
+
+**display-name**
+  Optional name shown for the project throughout the Jenkins web GUI in place
+  of the actual job name.  The jenkins_jobs tool cannot fully remove this trait
+  once it is set, so use caution when setting it.  Setting it to the same
+  string as the project name is an effective un-set workaround.  Alternately,
+  the field can be cleared manually using the Jenkins web interface.
 
 **concurrent**
   Boolean value to set whether or not Jenkins can run this job
@@ -115,6 +123,12 @@ define a template that you can use to create jobs with a `Project`_
 definition.  It's name will depend on what is supplied to the
 `Project`_.
 
+If you want to use lists or dicts variables you can use ``{obj:key}``.
+
+For example:
+
+.. literalinclude::  /../../tests/yamlparser/fixtures/custom_distri.yaml
+
 .. _project:
 
 Project
@@ -125,9 +139,9 @@ provide values for the variables in a `Job Template`_.  It looks like
 this::
 
   - project:
-    name: project-name
-    jobs:
-      - '{name}-unit-tests'
+      name: project-name
+      jobs:
+        - '{name}-unit-tests'
 
 Any number of arbitrarily named additional fields may be specified,
 and they will be available for variable substitution in the job
@@ -138,13 +152,29 @@ with those values.  The example above would create the job called
 The ``jobs:`` list can also allow for specifying job-specific
 substitutions as follows::
 
+  - job-template:
+      name: '{name}-unit-tests'
+      builders:
+        - shell: unittest
+      publishers:
+        - email:
+            recipients: '{mail-to}'
+
+  - job-template:
+      name: '{name}-perf-tests'
+      builders:
+        - shell: perftest
+      publishers:
+        - email:
+            recipients: '{mail-to}'
+
   - project:
       name: project-name
       jobs:
         - '{name}-unit-tests':
-          mail-to: developer@nowhere.net
-	- '{name}-perf-tests':
-          mail-to: projmanager@nowhere.net
+            mail-to: developer@nowhere.net
+        - '{name}-perf-tests':
+            mail-to: projmanager@nowhere.net
 
 If a variable is a list, the job template will be realized with the
 variable set to each value in the list.  Multiple lists will lead to
@@ -185,7 +215,7 @@ the Job Templates in the Job Group will be realized.  For example::
         - python-jobs
 
 Would cause the jobs `foo-python-26` and `foo-python-27` to be created
-in Jekins.
+in Jenkins.
 
 The ``jobs:`` list can also allow for specifying job-specific
 substitutions as follows::
@@ -211,9 +241,8 @@ will instruct Jenkins to execute "make test" as part of the job::
 
   - job:
       name: foo-test
-
-    builders:
-      - shell: 'make test'
+      builders:
+        - shell: 'make test'
 
 If you wanted to define a macro (which won't save much typing in this
 case, but could still be useful to centralize the definition of a
@@ -340,8 +369,8 @@ Generally the sequence is:
     #. scm
     #. triggers
     #. wrappers
-    #. prebuilders (maven only)
+    #. prebuilders (maven only, configured like :ref:`builders`)
     #. builders (maven, freestyle, matrix, etc..)
-    #. postbuilders (maven only)
+    #. postbuilders (maven only, configured like :ref:`builders`)
     #. publishers/reporters/notifications
 

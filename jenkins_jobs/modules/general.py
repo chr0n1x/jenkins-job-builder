@@ -17,16 +17,18 @@
 The Logrotate section allows you to automatically remove old build
 history. It adds the ``logrotate`` attribute to the :ref:`Job`
 definition.
+All logrotate attributes have default "-1" value so you don't need to specify
+that explicitly
 
 Example::
 
   - job:
       name: test_job
       logrotate:
-      daysToKeep: 3
-      numToKeep: 20
-      artifactDaysToKeep: -1
-      artifactNumToKeep: -1
+        daysToKeep: 3
+        numToKeep: 20
+        artifactDaysToKeep: -1
+        artifactNumToKeep: -1
 
 The Assigned Node section allows you to specify which Jenkins node (or
 named group) should run the specified job. It adds the ``node``
@@ -66,6 +68,8 @@ class General(jenkins_jobs.modules.base.Base):
                 XML.SubElement(xml, 'disabled').text = 'true'
             else:
                 XML.SubElement(xml, 'disabled').text = 'false'
+        if 'display-name' in data:
+            XML.SubElement(xml, 'displayName').text = data['display-name']
         if data.get('block-downstream'):
             XML.SubElement(xml,
                            'blockBuildWhenDownstreamBuilding').text = 'true'
@@ -87,7 +91,7 @@ class General(jenkins_jobs.modules.base.Base):
         if 'workspace' in data:
             XML.SubElement(xml, 'customWorkspace').text = \
                 str(data['workspace'])
-        if('quiet-period' in data):
+        if 'quiet-period' in data:
             XML.SubElement(xml, 'quietPeriod').text = str(data['quiet-period'])
         node = data.get('node', None)
         if node:
@@ -95,14 +99,18 @@ class General(jenkins_jobs.modules.base.Base):
             XML.SubElement(xml, 'canRoam').text = 'false'
         else:
             XML.SubElement(xml, 'canRoam').text = 'true'
+        if 'retry-count' in data:
+            XML.SubElement(xml, 'scmCheckoutRetryCount').text = \
+                str(data['retry-count'])
+
         if 'logrotate' in data:
             lr_xml = XML.SubElement(xml, 'logRotator')
             logrotate = data['logrotate']
             lr_days = XML.SubElement(lr_xml, 'daysToKeep')
-            lr_days.text = str(logrotate['daysToKeep'])
+            lr_days.text = str(logrotate.get('daysToKeep', -1))
             lr_num = XML.SubElement(lr_xml, 'numToKeep')
-            lr_num.text = str(logrotate['numToKeep'])
+            lr_num.text = str(logrotate.get('numToKeep', -1))
             lr_adays = XML.SubElement(lr_xml, 'artifactDaysToKeep')
-            lr_adays.text = str(logrotate['artifactDaysToKeep'])
+            lr_adays.text = str(logrotate.get('artifactDaysToKeep', -1))
             lr_anum = XML.SubElement(lr_xml, 'artifactNumToKeep')
-            lr_anum.text = str(logrotate['artifactNumToKeep'])
+            lr_anum.text = str(logrotate.get('artifactNumToKeep', -1))

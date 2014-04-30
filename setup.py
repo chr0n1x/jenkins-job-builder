@@ -14,14 +14,6 @@
 
 import setuptools
 
-from jenkins_jobs.openstack.common import setup
-from jenkins_jobs.version import version_info as version
-
-requires = setup.parse_requirements()
-test_requires = setup.parse_requirements(['tools/test-requires'])
-depend_links = setup.parse_dependency_links()
-
-
 setuptools.setup(
     name='jenkins-job-builder',
     version=version.canonical_version_string(always=True),

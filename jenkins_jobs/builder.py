@@ -16,6 +16,7 @@
 # Manage jobs in Jenkins server
 
 import os
+import sys
 import hashlib
 import yaml
 import json
@@ -27,10 +28,46 @@ import pkg_resources
 import logging
 import copy
 import itertools
+import fnmatch
 from jenkins_jobs.errors import JenkinsJobsException
 
 logger = logging.getLogger(__name__)
 MAGIC_MANAGE_STRING = "<!-- Managed by Jenkins Job Builder -->"
+
+
+# Python <= 2.7.3's minidom toprettyxml produces broken output by adding
+# extraneous whitespace around data. This patches the broken implementation
+# with one taken from Python > 2.7.3.
+def writexml(self, writer, indent="", addindent="", newl=""):
+    # indent = current indentation
+    # addindent = indentation to add to higher levels
+    # newl = newline string
+    writer.write(indent + "<" + self.tagName)
+
+    attrs = self._get_attributes()
+    a_names = attrs.keys()
+    a_names.sort()
+
+    for a_name in a_names:
+        writer.write(" %s=\"" % a_name)
+        minidom._write_data(writer, attrs[a_name].value)
+        writer.write("\"")
+    if self.childNodes:
+        writer.write(">")
+        if (len(self.childNodes) == 1 and
+                self.childNodes[0].nodeType == minidom.Node.TEXT_NODE):
+            self.childNodes[0].writexml(writer, '', '', '')
+        else:
+            writer.write(newl)
+            for node in self.childNodes:
+                node.writexml(writer, indent + addindent, addindent, newl)
+            writer.write(indent)
+        writer.write("</%s>%s" % (self.tagName, newl))
+    else:
+        writer.write("/>%s" % (newl))
+
+if sys.version_info[:3] <= (2, 7, 3):
+    minidom.Element.writexml = writexml
 
 
 def deep_format(obj, paramdict):
@@ -42,7 +79,11 @@ def deep_format(obj, paramdict):
     # example, is problematic).
     if isinstance(obj, str):
         try:
-            ret = obj.format(**paramdict)
+            result = re.match('^{obj:(?P<key>\w+)}$', obj)
+            if result is not None:
+                ret = paramdict[result.group("key")]
+            else:
+                ret = obj.format(**paramdict)
         except KeyError as exc:
             missing_key = exc.message
             desc = "%s parameter missing to format %s\nGiven: %s" % (
@@ -55,7 +96,7 @@ def deep_format(obj, paramdict):
     elif isinstance(obj, dict):
         ret = {}
         for item in obj:
-            ret[item] = deep_format(obj[item], paramdict)
+            ret[item.format(**paramdict)] = deep_format(obj[item], paramdict)
     else:
         ret = obj
     return ret
@@ -77,11 +118,25 @@ def parser_load(config, fn):
         parser.parse(in_file)
     return parser
 
+def matches(what, where):
+    """
+    Checks if the given string matches against the given list of glob patterns
+
+    :arg str what: String that we want to test if matches
+    :arg list where: list of glob patters to match
+    """
+    for pattern in where:
+        if re.match(fnmatch.translate(pattern), what):
+            return True
+    return False
+
+
 class YamlParser(object):
     def __init__(self, config=None):
-        self.registry = ModuleRegistry(config)
         self.data = {}
         self.jobs = []
+        self.config = config
+        self.registry = ModuleRegistry(self.config)
 
     def parse(self, fn):
         """fn can either be a file system path or a string
@@ -93,7 +148,15 @@ class YamlParser(object):
           data = yaml.load(fn)
         else:
           data = fn
+
+    def parse_fp(self, fp):
+        data = yaml.load(fp)
         if data:
+            if not isinstance(data, list):
+                raise JenkinsJobsException(
+                    "The topmost collection in file '{fname}' must be a list,"
+                    " not a {cls}".format(fname=getattr(fp, 'name', fp),
+                                          cls=type(data)))
             for item in data:
                 cls, dfn = item.items()[0]
                 group = self.data.get(cls, {})
@@ -111,6 +174,10 @@ class YamlParser(object):
                 group[name] = dfn
                 self.data[cls] = group
         return data
+
+    def parse(self, fn):
+        with open(fn) as fp:
+            self.parse_fp(fp)
 
     def getJob(self, name):
         job = self.data.get('job', {}).get(name, None)
@@ -145,7 +212,8 @@ class YamlParser(object):
                         changed = True
 
         for job in self.data.get('job', {}).values():
-            if jobs_filter and job['name'] not in jobs_filter:
+            if jobs_filter and not matches(job['name'], jobs_filter):
+                logger.debug("Ignoring job {0}".format(job['name']))
                 continue
             logger.debug("XMLifying job '{0}'".format(job['name']))
             job = self.applyDefaults(job)
@@ -156,6 +224,8 @@ class YamlParser(object):
                 if isinstance(jobspec, dict):
                     # Singleton dict containing dict of job-specific params
                     jobname, jobparams = jobspec.items()[0]
+                    if not isinstance(jobparams, dict):
+                        jobparams = {}
                 else:
                     jobname = jobspec
                     jobparams = {}
@@ -170,6 +240,8 @@ class YamlParser(object):
                         if isinstance(group_jobspec, dict):
                             group_jobname, group_jobparams = \
                                 group_jobspec.items()[0]
+                            if not isinstance(group_jobparams, dict):
+                                group_jobparams = {}
                         else:
                             group_jobname = group_jobspec
                             group_jobparams = {}
@@ -195,6 +267,10 @@ class YamlParser(object):
                     d.update(project)
                     d.update(jobparams)
                     self.getXMLForTemplateJob(d, template, jobs_filter)
+                else:
+                    raise JenkinsJobsException("Failed to find suitable "
+                                               "template named '{0}'"
+                                               .format(jobname))
 
     def getXMLForTemplateJob(self, project, template, jobs_filter=None):
         dimensions = []
@@ -230,7 +306,7 @@ class YamlParser(object):
                 # We also want to skip XML generation whenever the user did
                 # not ask for that job.
                 job_name = expanded.get('name')
-                if jobs_filter and job_name not in jobs_filter:
+                if jobs_filter and not matches(job_name, jobs_filter):
                     continue
 
                 logger.debug("Generating XML for template job {0}"
@@ -241,8 +317,18 @@ class YamlParser(object):
 
     def getXMLForJob(self, data):
         kind = data.get('project-type', 'freestyle')
-        data["description"] = data.get("description", "") + \
-            self.get_managed_string()
+        if self.config:
+            keep_desc = self.config.getboolean('job_builder',
+                                               'keep_descriptions')
+        else:
+            keep_desc = False
+        if keep_desc:
+            description = data.get("description", None)
+        else:
+            description = data.get("description", '')
+        if description is not None:
+            data["description"] = description + \
+                self.get_managed_string().lstrip()
         for ep in pkg_resources.iter_entry_points(
                 group='jenkins_jobs.projects', name=kind):
             Mod = ep.load()
@@ -276,6 +362,8 @@ class YamlParser(object):
 
 
 class ModuleRegistry(object):
+    entry_points_cache = {}
+
     def __init__(self, config):
         self.modules = []
         self.modules_by_component_type = {}
@@ -344,10 +432,23 @@ class ModuleRegistry(object):
             component_data = {}
 
         # Look for a component function defined in an entry point
-        for ep in pkg_resources.iter_entry_points(
-                group='jenkins_jobs.{0}'.format(component_list_type),
-                name=name):
-            func = ep.load()
+        cache_key = '%s:%s' % (component_list_type, name)
+        eps = ModuleRegistry.entry_points_cache.get(cache_key)
+        if eps is None:
+            eps = list(pkg_resources.iter_entry_points(
+                       group='jenkins_jobs.{0}'.format(component_list_type),
+                       name=name))
+            if len(eps) > 1:
+                raise JenkinsJobsException(
+                    "Duplicate entry point found for component type: '{0}',"
+                    "name: '{1}'".format(component_type, name))
+            elif len(eps) == 1:
+                ModuleRegistry.entry_points_cache[cache_key] = eps
+                logger.debug("Cached entry point %s = %s", cache_key,
+                             ModuleRegistry.entry_points_cache[cache_key])
+
+        if len(eps) == 1:
+            func = eps[0].load()
             func(parser, xml_parent, component_data)
         else:
             # Otherwise, see if it's defined as a macro
@@ -359,6 +460,10 @@ class ModuleRegistry(object):
                     # the arguments are interpolated into the real defn.
                     self.dispatch(component_type,
                                   parser, xml_parent, b, component_data)
+            else:
+                raise JenkinsJobsException("Unknown entry point or macro '{0}'"
+                                           " for component type: '{1}'.".
+                                           format(name, component_type))
 
 
 class XmlJob(object):
@@ -369,14 +474,9 @@ class XmlJob(object):
     def md5(self):
         return hashlib.md5(self.output()).hexdigest()
 
-    # Pretty printing ideas from
-    # http://stackoverflow.com/questions/749796/pretty-printing-xml-in-python
-    pretty_text_re = re.compile('>\n\s+([^<>\s].*?)\n\s+</', re.DOTALL)
-
     def output(self):
         out = minidom.parseString(XML.tostring(self.xml))
-        out = out.toprettyxml(indent='  ')
-        return self.pretty_text_re.sub('>\g<1></', out)
+        return out.toprettyxml(indent='  ', encoding='utf-8')
 
 
 class CacheStorage(object):
@@ -451,11 +551,11 @@ class Jenkins(object):
 
     def is_managed(self, job_name):
         xml = self.jenkins.get_job_config(job_name)
-        out = XML.fromstring(xml)
         try:
+            out = XML.fromstring(xml)
             description = out.find(".//description").text
             return description.endswith(MAGIC_MANAGE_STRING)
-        except AttributeError:
+        except (TypeError, AttributeError):
             pass
         return False
 
@@ -467,10 +567,23 @@ class Builder(object):
         self.global_config = config
         self.ignore_cache = ignore_cache
 
-    def delete_job(self, name):
-        self.jenkins.delete_job(name)
-        if(self.cache.is_cached(name)):
-            self.cache.set(name, '')
+    def load_files(self, fn):
+        self.parser = YamlParser(self.global_config)
+
+        if hasattr(fn, 'read'):
+            self.parser.parse_fp(fn)
+            return
+
+        if os.path.isdir(fn):
+            files_to_process = [os.path.join(fn, f)
+                                for f in os.listdir(fn)
+                                if (f.endswith('.yml') or f.endswith('.yaml'))]
+        else:
+            files_to_process = [fn]
+
+        for in_file in files_to_process:
+            logger.debug("Parsing YAML file {0}".format(in_file))
+            self.parser.parse(in_file)
 
     def delete_old_managed(self, keep):
         jobs = self.jenkins.get_jobs()
@@ -480,25 +593,28 @@ class Builder(object):
                 logger.info("Removing obsolete jenkins job {0}"
                             .format(job['name']))
                 self.delete_job(job['name'])
+            else:
+                logger.debug("Ignoring unmanaged jenkins job %s",
+                             job['name'])
+
+    def delete_job(self, glob_name, fn=None):
+        if fn:
+            self.load_files(fn)
+            self.parser.generateXML(glob_name)
+            jobs = [j.name
+                    for j in self.parser.jobs
+                    if matches(j.name, [glob_name])]
+        else:
+            jobs = [glob_name]
+        for job in jobs:
+            self.jenkins.delete_job(job)
+            if(self.cache.is_cached(job)):
+                self.cache.set(job, '')
 
     def delete_all_jobs(self):
         jobs = self.jenkins.get_jobs()
         for job in jobs:
             self.delete_job(job['name'])
-
-    def update_job(self, fn, names=None, output_dir=None):
-        """Default job update fx - loads a file / dir of templates
-        generates all XML, sort the jobs and call self.update_jobs()
-        to loop through parser.jobs and create all jobs
-
-        :arg string fn: File(s) to load / parse
-        :arg list names: List of job names to update
-        :arg string output_dir: Output dir for config.xml files
-        """
-        parser = parser_load(self.global_config, fn)
-        parser.generateXML(names)
-        parser.jobs.sort(lambda a, b: cmp(a.name, b.name))
-        return self.update_jobs(parser.jobs, names, output_dir)
 
     def update_jobs(self, jobs, names=None, output_dir=None):
         """
@@ -512,14 +628,34 @@ class Builder(object):
             logger.debug("Will filter out jobs not in %s" % names)
         for job in jobs:
             if names and job.name not in names:
+
+    def update_job(self, input_fn, names=None, output=None):
+        self.load_files(input_fn)
+        self.parser.generateXML(names)
+
+        self.parser.jobs.sort(lambda a, b: cmp(a.name, b.name))
+
+        for job in self.parser.jobs:
+            if names and not matches(job.name, names):
                 continue
-            if output_dir:
-                if names:
-                    print job.output()
+            if output:
+                if hasattr(output, 'write'):
+                    # `output` is a file-like object
+                    logger.debug("Writing XML to '{0}'".format(output))
+                    output.write(job.output())
                     continue
-                fn = os.path.join(output_dir, job.name)
-                logger.debug("Writing XML to '{0}'".format(fn))
-                f = open(fn, 'w')
+
+                output_dir = output
+
+                try:
+                    os.makedirs(output_dir)
+                except OSError:
+                    if not os.path.isdir(output_dir):
+                        raise
+
+                output_fn = os.path.join(output_dir, job.name)
+                logger.debug("Writing XML to '{0}'".format(output_fn))
+                f = open(output_fn, 'w')
                 f.write(job.output())
                 f.close()
                 continue
@@ -533,7 +669,7 @@ class Builder(object):
                 self.cache.set(job.name, md5)
             else:
                 logger.debug("'{0}' has not changed".format(job.name))
-        return jobs
+        return self.parser.jobs
 
     def create_job_from_template(self, fn, template, params, output=None):
         """
@@ -547,3 +683,4 @@ class Builder(object):
                                     parser.getJobTemplate(template),
                                     project['name'])
         self.update_jobs(parser.jobs, names=[project['name']], output_dir=output)
+        return self.parser.jobs

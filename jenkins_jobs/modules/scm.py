@@ -26,22 +26,12 @@ SCMs plugin.
   :Macro: scm
   :Entry Point: jenkins_jobs.scm
 
-Example::
-
-  job:
-    name: test_job
-    scm:
-      -git:
-        url: https://example.com/project.git
-      -git:
-        url: https://example.org/otherproject.git
-        basedir: other
-
 """
 
 
 import xml.etree.ElementTree as XML
 import jenkins_jobs.modules.base
+from jenkins_jobs.errors import JenkinsJobsException
 
 
 def git(self, xml_parent, data):
@@ -51,13 +41,22 @@ def git(self, xml_parent, data):
     <https://wiki.jenkins-ci.org/display/JENKINS/Git+Plugin>`_
 
     :arg str url: URL of the git repository
+    :arg str credentials-id: ID of credentials to use to connect (optional)
     :arg str refspec: refspec to fetch
     :arg str name: name to fetch
+    :arg list(str) remotes: list of remotes to set up (optional, only needed if
+      multiple remotes need to be set up)
+
+        :Remote: * **url** (`string`) - url of remote repo
+                 * **refspec** (`string`) - refspec to fetch (optional)
+                 * **credentials-id** - ID of credentials to use to connect
+                     (optional)
     :arg list(str) branches: list of branch specifiers to build
     :arg list(str) excluded-users: list of users to ignore revisions from
       when polling for changes. (if polling is enabled)
     :arg list(str) included-regions: list of file/folders to include
     :arg list(str) excluded-regions: list of file/folders to exclude
+    :arg str local-branch: Checkout/merge to local branch
     :arg dict merge:
         :merge:
             * **remote** (`string`) - name of repo that contains branch to
@@ -66,6 +65,7 @@ def git(self, xml_parent, data):
     :arg str basedir: location relative to the workspace root to clone to
              (default: workspace)
     :arg bool skip-tag: Skip tagging
+    :arg bool shallow-clone: Perform shallow clone
     :arg bool prune: Prune remote branches
     :arg bool clean: Clean after checkout
     :arg bool fastpoll: Use fast remote polling
@@ -79,19 +79,24 @@ def git(self, xml_parent, data):
     :arg bool wipe-workspace: Wipe out workspace before build
     :arg str browser: what repository browser to use (default '(Auto)')
     :arg str browser-url: url for the repository browser
+    :arg str browser-version: version of the repository browser (GitLab)
+    :arg str project-name: project name in Gitblit and ViewGit repobrowser
     :arg str choosing-strategy: Jenkins class for selecting what to build
     :arg str git-config-name: Configure name for Git clone
     :arg str git-config-email: Configure email for Git clone
 
     :browser values:
-        :githubweb:
-        :fisheye:
+        :auto:
         :bitbucketweb:
+        :cgit:
+        :fisheye:
         :gitblit:
+        :githubweb:
         :gitlab:
         :gitoriousweb:
         :gitweb:
         :redmineweb:
+        :stash:
         :viewgit:
 
     :choosing-strategy values:
@@ -99,16 +104,9 @@ def git(self, xml_parent, data):
         :inverse:
         :gerrit:
 
-    Example::
+    Example:
 
-      scm:
-        - git:
-          url: https://example.com/project.git
-          branches:
-            - master
-            - stable
-          browser: githubweb
-          browser-url: http://github.com/foo/example.git
+    .. literalinclude:: /../../tests/scm/fixtures/git001.yaml
     """
 
     # XXX somebody should write the docs for those with option name =
@@ -131,6 +129,7 @@ def git(self, xml_parent, data):
         ("git-config-email", 'gitConfigEmail', ''),
         ('skip-tag', 'skipTag', False),
         ('scm-name', 'scmName', ''),
+        ("shallow-clone", "useShallowClone", False),
     ]
 
     choosing_strategies = {
@@ -144,14 +143,27 @@ def git(self, xml_parent, data):
                          'scm', {'class': 'hudson.plugins.git.GitSCM'})
     XML.SubElement(scm, 'configVersion').text = '2'
     user = XML.SubElement(scm, 'userRemoteConfigs')
-    huser = XML.SubElement(user, 'hudson.plugins.git.UserRemoteConfig')
-    XML.SubElement(huser, 'name').text = data.get('name', 'origin')
-    if 'refspec' in data:
-        refspec = data['refspec']
-    else:
-        refspec = '+refs/heads/*:refs/remotes/origin/*'
-    XML.SubElement(huser, 'refspec').text = refspec
-    XML.SubElement(huser, 'url').text = data['url']
+    if 'remotes' not in data:
+        data['remotes'] = [{data.get('name', 'origin'): data}]
+    for remoteData in data['remotes']:
+        huser = XML.SubElement(user, 'hudson.plugins.git.UserRemoteConfig')
+        remoteName = remoteData.keys()[0]
+        XML.SubElement(huser, 'name').text = remoteName
+        remoteParams = remoteData.values()[0]
+        if 'refspec' in remoteParams:
+            refspec = remoteParams['refspec']
+        else:
+            refspec = '+refs/heads/*:refs/remotes/' + remoteName + '/*'
+        XML.SubElement(huser, 'refspec').text = refspec
+        if 'url' in remoteParams:
+            remoteURL = remoteParams['url']
+        else:
+            raise JenkinsJobsException('Must specify a url for git remote \"' +
+                                       remoteName + '"')
+        XML.SubElement(huser, 'url').text = remoteURL
+        if 'credentials-id' in remoteParams:
+            credentialsId = remoteParams['credentials-id']
+            XML.SubElement(huser, 'credentialsId').text = credentialsId
     xml_branches = XML.SubElement(scm, 'branches')
     branches = data.get('branches', ['**'])
     for branch in branches:
@@ -193,28 +205,39 @@ def git(self, xml_parent, data):
             xe.text = str(val).lower()
         else:
             xe.text = val
+
+    if 'local-branch' in data:
+        XML.SubElement(scm, 'localBranch').text = data['local-branch']
+
     browser = data.get('browser', 'auto')
-    browserdict = {'githubweb': 'GithubWeb',
-                   'fisheye': 'FisheyeGitRepositoryBrowser',
+    browserdict = {'auto': 'auto',
                    'bitbucketweb': 'BitbucketWeb',
                    'cgit': 'CGit',
+                   'fisheye': 'FisheyeGitRepositoryBrowser',
                    'gitblit': 'GitBlitRepositoryBrowser',
+                   'githubweb': 'GithubWeb',
                    'gitlab': 'GitLab',
                    'gitoriousweb': 'GitoriousWeb',
                    'gitweb': 'GitWeb',
                    'redmineweb': 'RedmineWeb',
-                   'viewgit': 'ViewGitWeb',
-                   'auto': 'auto'}
+                   'stash': 'Stash',
+                   'viewgit': 'ViewGitWeb'}
     if browser not in browserdict:
-        raise Exception("Browser entered is not valid must be one of: " +
-                        "githubweb, fisheye, bitbucketweb, cgit, gitblit, " +
-                        "gitlab, gitoriousweb, gitweb, redmineweb, viewgit, " +
-                        "or auto")
+        valid = sorted(browserdict.keys())
+        raise JenkinsJobsException("Browser entered is not valid must be one "
+                                   "of: %s or %s." % (", ".join(valid[:-1]),
+                                                      valid[-1]))
     if browser != 'auto':
         bc = XML.SubElement(scm, 'browser', {'class':
                             'hudson.plugins.git.browser.' +
                             browserdict[browser]})
         XML.SubElement(bc, 'url').text = data['browser-url']
+        if browser in ['gitblit', 'viewgit']:
+            XML.SubElement(bc, 'projectName').text = str(
+                data.get('project-name', ''))
+        if browser == 'gitlab':
+            XML.SubElement(bc, 'version').text = str(
+                data.get('browser-version', '0.0'))
 
 
 def repo(self, xml_parent, data):
@@ -242,26 +265,9 @@ def repo(self, xml_parent, data):
     :arg str local-manifest: Contents of .repo/local_manifest.xml, written
              prior to calling sync (optional)
 
-    Example::
+    Example:
 
-      scm:
-        - repo:
-            manifest-url: https://example.com/project/
-            manifest-branch: stable
-            manifest-file: repo.xml
-            manifest-group: drivers
-            destination-dir: build
-            repo-url: https://internal.net/projects/repo
-            mirror-dir: ~/git/project/
-            jobs: 3
-            current-branch: false
-            quiet: false
-            local-manifest: |
-              <?xml version="1.0" encoding="UTF-8"?>
-              <manifest>
-                <project path="external/project" name="org/project"
-                  remote="gerrit" revision="master" />
-              </manifest>
+    .. literalinclude:: /../../tests/scm/fixtures/repo001.yaml
     """
 
     scm = XML.SubElement(xml_parent,
@@ -271,7 +277,7 @@ def repo(self, xml_parent, data):
         XML.SubElement(scm, 'manifestRepositoryUrl').text = \
             data['manifest-url']
     else:
-        raise Exception("Must specify a manifest url")
+        raise JenkinsJobsException("Must specify a manifest url")
 
     mapping = [
         # option, xml name, default value
@@ -348,7 +354,7 @@ def svn(self, xml_parent, data):
         XML.SubElement(module, 'remote').text = data['url']
         XML.SubElement(module, 'local').text = data.get('basedir', '.')
     else:
-        raise Exception("A top level url or repos list must exist")
+        raise JenkinsJobsException("A top level url or repos list must exist")
     updater = data.get('workspaceupdater', 'wipeworkspace')
     if updater == 'wipeworkspace':
         updaterclass = 'CheckoutUpdater'
@@ -484,6 +490,44 @@ def tfs(self, xml_parent, data):
                                                   'plugins.tfs.browsers.'
                                                   'TeamSystemWebAccess'
                                                   'Browser'})
+
+
+def workspace(self, xml_parent, data):
+    """yaml: workspace
+    Specifies the cloned workspace for this job to use as a SCM source.
+    Requires the Jenkins `Clone Workspace SCM Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Clone+Workspace+SCM+Plugin>`_
+
+    The job the workspace is cloned from must be configured with an
+    clone-workspace publisher
+
+    :arg str parent-job: The name of the parent job to clone the
+        workspace from.
+    :arg str criteria: Set the criteria to determine what build of the parent
+        project to use. Can be one of 'Any', 'Not Failed' or 'Successful'.
+        (default: Any)
+
+
+    Example:
+
+    .. literalinclude:: /../../tests/scm/fixtures/workspace001.yaml
+    """
+
+    workspace = XML.SubElement(xml_parent, 'scm', {'class': 'hudson.plugins.'
+                               'cloneworkspace.CloneWorkspaceSCM'})
+    XML.SubElement(workspace, 'parentJobName').text = str(
+        data.get('parent-job', ''))
+
+    criteria_list = ['Any', 'Not Failed', 'Successful']
+
+    criteria = data.get('criteria', 'Any').title()
+
+    if 'criteria' in data and criteria not in criteria_list:
+        raise JenkinsJobsException(
+            'clone-workspace criteria must be one of: '
+            + ', '.join(criteria_list))
+    else:
+        XML.SubElement(workspace, 'criteria').text = criteria
 
 
 class SCM(jenkins_jobs.modules.base.Base):

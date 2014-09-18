@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-#
 # Joint copyright:
 #  - Copyright 2012,2013 Wikimedia Foundation
 #  - Copyright 2012,2013 Antoine "hashar" Musso
@@ -63,10 +61,7 @@ class TestCaseModulePublisher(TestWithScenarios, testtools.TestCase):
         # Prettify generated XML
         pretty_xml = XmlJob(xml_project, 'fixturejob').output()
 
-        self.assertThat(
-            pretty_xml,
-            testtools.matchers.DocTestMatches(expected_xml,
-                                              doctest.ELLIPSIS |
-                                              doctest.NORMALIZE_WHITESPACE |
-                                              doctest.REPORT_NDIFF)
-        )
+class TestCaseModulePublishers(TestWithScenarios, TestCase, BaseTestCase):
+    fixtures_path = os.path.join(os.path.dirname(__file__), 'fixtures')
+    scenarios = get_scenarios(fixtures_path)
+    klass = publishers.Publishers

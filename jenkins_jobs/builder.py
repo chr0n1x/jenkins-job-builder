@@ -412,7 +412,7 @@ class CacheStorage(object):
         yfile.close()
 
     def is_cached(self, job):
-        if job in self.data:
+        if self.data && job in self.data:
             return True
         return False
 
